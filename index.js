@@ -4,6 +4,7 @@ const cors = require("cors");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const Razorpay = require("razorpay");
+const Payment = require("./models/payment.js");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -72,15 +73,15 @@ const razorpay = new Razorpay({
 // 🔹 Create Razorpay Order API
 app.post("/create-order", async (req, res) => {
   try {
-    const { amount } = req.body; // amount in INR (e.g. 500 for ₹5)
+    const { amount } = req.body;
     if (!amount) return res.status(400).json({ message: "Amount required" });
 
     const options = {
-      amount: amount * 100, // amount in paise (₹1 = 100 paise)
+      amount: amount,
       currency: "INR",
       receipt: `receipt_${Date.now()}`,
     };
-
+    
     const order = await razorpay.orders.create(options);
     res.json({
       id: order.id,
@@ -97,7 +98,8 @@ app.post("/create-order", async (req, res) => {
 // 🔹 Verify Payment API (optional but recommended)
 const crypto = require("crypto");
 
-app.post("/verify-payment", (req, res) => {
+app.post("/verify-payment", async(req, res) => {
+  console.log("Verifying payment with body:", req.body);
   const { order_id, payment_id, signature } = req.body;
 
   const body = order_id + "|" + payment_id;
@@ -106,8 +108,39 @@ app.post("/verify-payment", (req, res) => {
     .update(body.toString())
     .digest("hex");
 
+    console.log("expectedSignature:", expectedSignature);
+    console.log("received signature:", signature);
+
   if (expectedSignature === signature) {
-    res.json({ success: true, message: "Payment verified successfully" });
+     try {
+
+       // 🟢 Fetch order details from Razorpay
+
+  const instance = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+  });
+
+  const order = await instance.orders.fetch(order_id);
+console.log("before saving payment", order);
+  // 🟢 Save payment in DB
+  await Payment.create({
+    order_id,
+    payment_id,
+    signature,
+    amount: order.amount / 100, // converting paise → rupee
+    currency: order.currency,
+    status: "paid",
+  });
+
+  console.log("Payment saved successfully");
+
+
+      res.json({ success: true, message: "Payment verified & saved" });
+    } catch (error) {
+      console.log(error);
+      return res.status(500).json({ success: false, message: "DB Save Failed" });
+    }
   } else {
     res.status(400).json({ success: false, message: "Invalid signature" });
   }
@@ -116,4 +149,15 @@ app.post("/verify-payment", (req, res) => {
 // 🚀 Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
+});
+
+// 🔹 Get All Payments API
+app.get("/payments", async (req, res) => {
+  try {
+    const payments = await Payment.find();
+    res.json(payments);
+  } catch (err) {
+    console.error("❌ Error fetching payments:", err);
+    res.status(500).json({ message: "Failed to fetch payments" });
+  }
 });
