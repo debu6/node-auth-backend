@@ -38,7 +38,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(bodyParser.json());
 
-const uri = "mongodb+srv://debu:DkJcc35lbecY0Ne9@cluster0.w7frrd9.mongodb.net/";
+const uri =process.env.MONGO_URI
 mongoose
   .connect(uri, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log("✅ MongoDB connected"))
